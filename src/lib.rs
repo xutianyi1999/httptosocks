@@ -5,7 +5,7 @@ use std::os::raw::c_char;
 use std::str::FromStr;
 
 use async_socks5::connect;
-use hyper::{Body, Client, http, Method, Request, Response, Server, Uri};
+use hyper::{Body, Client, Method, Request, Response, Server, Uri};
 use hyper::client::HttpConnector;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::upgrade::Upgraded;
@@ -21,12 +21,15 @@ type HttpClient = Client<SocksConnector<HttpConnector>>;
 
 #[no_mangle]
 pub extern fn start(proxy_addr: *const c_char, proxy_addr_len: u8, socks5_addr: *const c_char, socks5_addr_len: u8, threads: u8) {
-    let proxy_addr = str_convert(proxy_addr, proxy_addr_len as usize).unwrap();
-    let socks5_addr = str_convert(socks5_addr, socks5_addr_len as usize).unwrap();
-    let threads = threads as usize;
+    let f = || {
+        let proxy_addr = str_convert(proxy_addr, proxy_addr_len as usize)?;
+        let socks5_addr = str_convert(socks5_addr, socks5_addr_len as usize)?;
+        let threads = threads as usize;
+        process(proxy_addr, socks5_addr, threads)
+    };
 
-    if let Err(e) = process(proxy_addr, socks5_addr, threads) {
-        eprintln!("{}", e);
+    if let Err(e) = f() {
+        eprintln!("{}", e)
     }
 }
 
@@ -73,42 +76,41 @@ fn process(proxy_addr: String, socks5_addr: String, threads: usize) -> Result<()
 }
 
 async fn proxy(client: HttpClient, req: Request<Body>, socks5_addr: String) -> hyper::Result<Response<Body>> {
-    println!("req: {:?}", req);
-
     if Method::CONNECT == req.method() {
-        if let Some(addr) = host_addr(req.uri()).await {
-            tokio::task::spawn(async move {
-                match req.into_body().on_upgrade().await {
-                    Ok(upgraded) => {
-                        if let Err(e) = tunnel(upgraded, addr, &socks5_addr).await {
-                            eprintln!("server io error: {}", e);
-                        };
-                    }
-                    Err(e) => eprintln!("upgrade error: {}", e),
+        tokio::spawn(async move {
+            let uri = req.uri();
+
+            let host = match uri.host() {
+                Some(v) => v.to_string(),
+                None => return
+            };
+
+            let port = match uri.port_u16() {
+                Some(v) => v,
+                None => return
+            };
+
+            match req.into_body().on_upgrade().await {
+                Ok(upgraded) => {
+                    let addr = (host, port);
+
+                    if let Err(e) = tunnel(upgraded, addr, &socks5_addr).await {
+                        eprintln!("server io error: {}", e);
+                    };
                 }
-            });
+                Err(e) => eprintln!("upgrade error: {}", e),
+            }
+        });
 
-            Ok(Response::new(Body::empty()))
-        } else {
-            eprintln!("CONNECT host is not socket addr: {:?}", req.uri());
-            let mut resp = Response::new(Body::from("CONNECT must be to a socket address"));
-            *resp.status_mut() = http::StatusCode::BAD_REQUEST;
-
-            Ok(resp)
-        }
+        Ok(Response::new(Body::empty()))
     } else {
         client.request(req).await
     }
 }
 
-async fn host_addr(uri: &http::Uri) -> Option<SocketAddr> {
-    tokio::net::lookup_host((uri.host().unwrap(), uri.port_u16().unwrap())).await.unwrap().next()
-}
-
-async fn tunnel(upgraded: Upgraded, addr: SocketAddr, socks5_addr: &str) -> std::io::Result<()> {
+async fn tunnel(upgraded: Upgraded, addr: (String, u16), socks5_addr: &str) -> std::io::Result<()> {
     let mut stream = TcpStream::connect(socks5_addr).await?;
-    // let mut stream = BufStream::new(stream);
-    connect(&mut stream, addr, None).await.res_convert(|_| "Connect socks5 server error".to_string())?;
+    connect(&mut stream, addr, None).await.res_convert(|_| "connect socks5 server error".to_string())?;
 
     let amounts = {
         let (mut server_rd, mut server_wr) = tokio::io::split(stream);
@@ -120,16 +122,8 @@ async fn tunnel(upgraded: Upgraded, addr: SocketAddr, socks5_addr: &str) -> std:
         tokio::try_join!(client_to_server, server_to_client)
     };
 
-    match amounts {
-        Ok((from_client, from_server)) => {
-            println!(
-                "client wrote {} bytes and received {} bytes",
-                from_client, from_server
-            );
-        }
-        Err(e) => {
-            println!("tunnel error: {}", e);
-        }
-    };
+    if let Err(e) = amounts {
+        println!("tunnel error: {}", e);
+    }
     Ok(())
 }
