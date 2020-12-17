@@ -1,0 +1,15 @@
+[package]
+name = "httptosocks"
+version = "0.1.0"
+authors = ["xutianyi <853122726@qq.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+hyper = "0.13"
+tokio = { version = "0.2", features = ["full"] }
+hyper-socks2 = "0.5.0"
+async-socks5 = "0.3.2"
