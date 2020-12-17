@@ -69,7 +69,7 @@ fn process(proxy_addr: String, socks5_addr: String, threads: usize) -> Result<()
         println!("Listening on http://{}", proxy_addr);
 
         if let Err(e) = server.await {
-            eprintln!("server error: {}", e);
+            eprintln!("Server error: {}", e);
         }
     });
     Ok(())
@@ -95,10 +95,10 @@ async fn proxy(client: HttpClient, req: Request<Body>, socks5_addr: String) -> h
                     let addr = (host, port);
 
                     if let Err(e) = tunnel(upgraded, addr, &socks5_addr).await {
-                        eprintln!("server io error: {}", e);
+                        eprintln!("Server io error: {}", e);
                     };
                 }
-                Err(e) => eprintln!("upgrade error: {}", e),
+                Err(e) => eprintln!("Upgrade error: {}", e),
             }
         });
 
@@ -110,7 +110,7 @@ async fn proxy(client: HttpClient, req: Request<Body>, socks5_addr: String) -> h
 
 async fn tunnel(upgraded: Upgraded, addr: (String, u16), socks5_addr: &str) -> std::io::Result<()> {
     let mut stream = TcpStream::connect(socks5_addr).await?;
-    connect(&mut stream, addr, None).await.res_convert(|_| "connect socks5 server error".to_string())?;
+    connect(&mut stream, addr, None).await.res_convert(|_| "Connect socks5 server error".to_string())?;
 
     let amounts = {
         let (mut server_rd, mut server_wr) = tokio::io::split(stream);
@@ -123,7 +123,7 @@ async fn tunnel(upgraded: Upgraded, addr: (String, u16), socks5_addr: &str) -> s
     };
 
     if let Err(e) = amounts {
-        println!("tunnel error: {}", e);
+        println!("Tunnel error: {}", e);
     }
     Ok(())
 }
