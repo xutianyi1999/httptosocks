@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate log;
+
 use std::convert::Infallible;
 use std::io::Result;
 use std::net::SocketAddr;
@@ -10,6 +13,11 @@ use hyper::client::HttpConnector;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::upgrade::Upgraded;
 use hyper_socks2::SocksConnector;
+use log4rs::append::console::ConsoleAppender;
+use log4rs::Config;
+use log4rs::config::{Appender, Root};
+use log4rs::encode::pattern::PatternEncoder;
+use log::LevelFilter;
 use tokio::net::TcpStream;
 use tokio::runtime;
 
@@ -19,8 +27,20 @@ mod common;
 
 type HttpClient = Client<SocksConnector<HttpConnector>>;
 
+static mut IS_INIT: bool = false;
+
 #[no_mangle]
 pub extern fn start(proxy_addr: *const c_char, proxy_addr_len: u8, socks5_addr: *const c_char, socks5_addr_len: u8, threads: u8) {
+    unsafe {
+        if !IS_INIT {
+            if let Err(e) = logger_init() {
+                eprintln!("{}", e);
+                return;
+            }
+            IS_INIT = true;
+        }
+    }
+
     let f = || {
         let proxy_addr = str_convert(proxy_addr, proxy_addr_len as usize)?;
         let socks5_addr = str_convert(socks5_addr, socks5_addr_len as usize)?;
@@ -29,7 +49,7 @@ pub extern fn start(proxy_addr: *const c_char, proxy_addr_len: u8, socks5_addr: 
     };
 
     if let Err(e) = f() {
-        eprintln!("{}", e)
+        error!("{}", e)
     }
 }
 
@@ -59,17 +79,17 @@ fn process(proxy_addr: String, socks5_addr: String, threads: usize) -> Result<()
 
         let bind_addr = match SocketAddr::from_str(&proxy_addr) {
             Err(e) => {
-                eprintln!("{}", e);
+                error!("{}", e);
                 return;
             }
             Ok(addr) => addr
         };
 
         let server = Server::bind(&bind_addr).serve(make_service);
-        println!("Listening on http://{}", proxy_addr);
+        info!("Listening on http://{}", proxy_addr);
 
         if let Err(e) = server.await {
-            eprintln!("Server error: {}", e);
+            error!("Server error: {}", e);
         }
     });
     Ok(())
@@ -95,10 +115,10 @@ async fn proxy(client: HttpClient, req: Request<Body>, socks5_addr: String) -> h
                     let addr = (host, port);
 
                     if let Err(e) = tunnel(upgraded, addr, &socks5_addr).await {
-                        eprintln!("Server io error: {}", e);
+                        error!("Server io error: {}", e);
                     };
                 }
-                Err(e) => eprintln!("Upgrade error: {}", e),
+                Err(e) => error!("Upgrade error: {}", e),
             }
         });
 
@@ -123,7 +143,21 @@ async fn tunnel(upgraded: Upgraded, addr: (String, u16), socks5_addr: &str) -> s
     };
 
     if let Err(e) = amounts {
-        println!("Tunnel error: {}", e);
+        error!("Tunnel error: {}", e);
     }
+    Ok(())
+}
+
+fn logger_init() -> Result<()> {
+    let stdout = ConsoleAppender::builder()
+        .encoder(Box::new(PatternEncoder::new("[Console] {d(%Y-%m-%d %H:%M:%S)} - {l} - {m}{n}")))
+        .build();
+
+    let config = Config::builder()
+        .appender(Appender::builder().build("stdout", Box::new(stdout)))
+        .build(Root::builder().appender("stdout").build(LevelFilter::Info))
+        .res_auto_convert()?;
+
+    log4rs::init_config(config).res_auto_convert()?;
     Ok(())
 }
