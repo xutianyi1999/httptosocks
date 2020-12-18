@@ -3,7 +3,7 @@ extern crate log;
 
 use std::convert::Infallible;
 use std::io::Result;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::os::raw::c_char;
 use std::str::FromStr;
 
@@ -54,6 +54,9 @@ pub extern fn start(proxy_addr: *const c_char, proxy_addr_len: u8, socks5_addr: 
 }
 
 fn process(proxy_addr: String, socks5_addr: String, threads: usize) -> Result<()> {
+    let temp = SocketAddr::from_str(&socks5_addr).res_auto_convert()?;
+    let socks5_addr = SocketAddr::from((IpAddr::from_str("127.0.0.1").res_auto_convert()?, temp.port()));
+
     let mut rt = runtime::Builder::new()
         .threaded_scheduler()
         .enable_all()
@@ -64,7 +67,7 @@ fn process(proxy_addr: String, socks5_addr: String, threads: usize) -> Result<()
     connector.enforce_http(false);
 
     let socks_proxy = SocksConnector {
-        proxy_addr: Uri::from_str(&format!("socks5://{}", &socks5_addr)).res_auto_convert()?,
+        proxy_addr: Uri::from_str(&format!("socks5://{}", socks5_addr.to_string())).res_auto_convert()?,
         auth: None,
         connector,
     };
@@ -73,8 +76,7 @@ fn process(proxy_addr: String, socks5_addr: String, threads: usize) -> Result<()
     rt.block_on(async move {
         let make_service = make_service_fn(move |_| {
             let client = client.clone();
-            let socks5_addr = socks5_addr.clone();
-            async move { Ok::<_, Infallible>(service_fn(move |req| proxy(client.clone(), req, socks5_addr.clone()))) }
+            async move { Ok::<_, Infallible>(service_fn(move |req| proxy(client.clone(), req, socks5_addr))) }
         });
 
         let bind_addr = match SocketAddr::from_str(&proxy_addr) {
@@ -95,26 +97,14 @@ fn process(proxy_addr: String, socks5_addr: String, threads: usize) -> Result<()
     Ok(())
 }
 
-async fn proxy(client: HttpClient, req: Request<Body>, socks5_addr: String) -> hyper::Result<Response<Body>> {
+async fn proxy(client: HttpClient, req: Request<Body>, socks5_addr: SocketAddr) -> hyper::Result<Response<Body>> {
     if Method::CONNECT == req.method() {
         tokio::spawn(async move {
-            let uri = req.uri();
-
-            let host = match uri.host() {
-                Some(v) => v.to_string(),
-                None => return
-            };
-
-            let port = match uri.port_u16() {
-                Some(v) => v,
-                None => return
-            };
+            let addr = req.uri().to_string();
 
             match req.into_body().on_upgrade().await {
                 Ok(upgraded) => {
-                    let addr = (host, port);
-
-                    if let Err(e) = tunnel(upgraded, addr, &socks5_addr).await {
+                    if let Err(e) = tunnel(upgraded, addr, socks5_addr).await {
                         error!("Server io error: {}", e);
                     };
                 }
@@ -128,7 +118,8 @@ async fn proxy(client: HttpClient, req: Request<Body>, socks5_addr: String) -> h
     }
 }
 
-async fn tunnel(upgraded: Upgraded, addr: (String, u16), socks5_addr: &str) -> std::io::Result<()> {
+async fn tunnel(upgraded: Upgraded, addr: String, socks5_addr: SocketAddr) -> std::io::Result<()> {
+    let addr = SocketAddr::from_str(&addr).res_auto_convert()?;
     let mut stream = TcpStream::connect(socks5_addr).await?;
     connect(&mut stream, addr, None).await.res_convert(|_| "Connect socks5 server error".to_string())?;
 
