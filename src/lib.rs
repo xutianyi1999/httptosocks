@@ -99,7 +99,10 @@ fn process(proxy_addr: String, socks5_addr: String, threads: usize) -> Result<()
 
 async fn proxy(client: HttpClient, req: Request<Body>, socks5_addr: SocketAddr) -> Result<Response<Body>> {
     if Method::CONNECT == req.method() {
-        let addr = req.uri().authority().option_to_res("Parse uri error")?.to_string();
+        let uri = req.uri();
+        let host = uri.host().option_to_res("Parse host error")?.to_string();
+        let port = uri.port_u16().option_to_res("Parse port error")?;
+        let addr = (host, port);
 
         tokio::spawn(async move {
             match req.into_body().on_upgrade().await {
@@ -118,8 +121,7 @@ async fn proxy(client: HttpClient, req: Request<Body>, socks5_addr: SocketAddr) 
     }
 }
 
-async fn tunnel(upgraded: Upgraded, addr: String, socks5_addr: SocketAddr) -> std::io::Result<()> {
-    let addr = SocketAddr::from_str(&addr).res_auto_convert()?;
+async fn tunnel(upgraded: Upgraded, addr: (String, u16), socks5_addr: SocketAddr) -> std::io::Result<()> {
     let mut stream = TcpStream::connect(socks5_addr).await?;
     connect(&mut stream, addr, None).await.res_convert(|_| "Connect socks5 server error".to_string())?;
 
