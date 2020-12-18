@@ -21,7 +21,7 @@ use log::LevelFilter;
 use tokio::net::TcpStream;
 use tokio::runtime;
 
-use crate::common::{StdResAutoConvert, StdResConvert, str_convert};
+use crate::common::{OptionConvert, StdResAutoConvert, StdResConvert, str_convert};
 
 mod common;
 
@@ -97,11 +97,11 @@ fn process(proxy_addr: String, socks5_addr: String, threads: usize) -> Result<()
     Ok(())
 }
 
-async fn proxy(client: HttpClient, req: Request<Body>, socks5_addr: SocketAddr) -> hyper::Result<Response<Body>> {
+async fn proxy(client: HttpClient, req: Request<Body>, socks5_addr: SocketAddr) -> Result<Response<Body>> {
     if Method::CONNECT == req.method() {
-        tokio::spawn(async move {
-            let addr = req.uri().to_string();
+        let addr = req.uri().authority().option_to_res("Parse uri error")?.to_string();
 
+        tokio::spawn(async move {
             match req.into_body().on_upgrade().await {
                 Ok(upgraded) => {
                     if let Err(e) = tunnel(upgraded, addr, socks5_addr).await {
@@ -114,7 +114,7 @@ async fn proxy(client: HttpClient, req: Request<Body>, socks5_addr: SocketAddr) 
 
         Ok(Response::new(Body::empty()))
     } else {
-        client.request(req).await
+        client.request(req).await.res_auto_convert()
     }
 }
 
