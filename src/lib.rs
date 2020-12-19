@@ -3,7 +3,7 @@ extern crate log;
 
 use std::convert::Infallible;
 use std::io::Result;
-use std::net::{IpAddr, SocketAddr};
+use std::net::SocketAddr;
 use std::os::raw::c_char;
 use std::str::FromStr;
 
@@ -54,8 +54,7 @@ pub extern fn start(proxy_addr: *const c_char, proxy_addr_len: u8, socks5_addr: 
 }
 
 fn process(proxy_addr: String, socks5_addr: String, threads: usize) -> Result<()> {
-    let temp = SocketAddr::from_str(&socks5_addr).res_auto_convert()?;
-    let socks5_addr = SocketAddr::from((IpAddr::from_str("127.0.0.1").res_auto_convert()?, temp.port()));
+    let socks5_addr = SocketAddr::from_str(&socks5_addr).res_auto_convert()?;
 
     let mut rt = runtime::Builder::new()
         .threaded_scheduler()
