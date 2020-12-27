@@ -10,7 +10,6 @@ extern "C" _declspec(dllexport)
 void start(const char *proxy_addr,
            unsigned char proxy_addr_len,
            const char *socks5_addr,
-           unsigned char socks5_addr_len,
-           unsigned char threads);
+           unsigned char socks5_addr_len);
 
 #endif //HTTPTOSOCKS_HTTPTOSOCKS_H

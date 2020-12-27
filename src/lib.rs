@@ -18,6 +18,7 @@ use log4rs::Config;
 use log4rs::config::{Appender, Root};
 use log4rs::encode::pattern::PatternEncoder;
 use log::LevelFilter;
+use tokio::io::BufReader;
 use tokio::net::TcpStream;
 use tokio::runtime;
 
@@ -30,7 +31,7 @@ type HttpClient = Client<SocksConnector<HttpConnector>>;
 static mut IS_INIT: bool = false;
 
 #[no_mangle]
-pub extern fn start(proxy_addr: *const c_char, proxy_addr_len: u8, socks5_addr: *const c_char, socks5_addr_len: u8, threads: u8) {
+pub extern fn start(proxy_addr: *const c_char, proxy_addr_len: u8, socks5_addr: *const c_char, socks5_addr_len: u8) {
     unsafe {
         if !IS_INIT {
             if let Err(e) = logger_init() {
@@ -44,8 +45,7 @@ pub extern fn start(proxy_addr: *const c_char, proxy_addr_len: u8, socks5_addr: 
     let f = || {
         let proxy_addr = str_convert(proxy_addr, proxy_addr_len as usize)?;
         let socks5_addr = str_convert(socks5_addr, socks5_addr_len as usize)?;
-        let threads = threads as usize;
-        process(proxy_addr, socks5_addr, threads)
+        process(proxy_addr, socks5_addr)
     };
 
     if let Err(e) = f() {
@@ -53,13 +53,11 @@ pub extern fn start(proxy_addr: *const c_char, proxy_addr_len: u8, socks5_addr: 
     }
 }
 
-fn process(proxy_addr: String, socks5_addr: String, threads: usize) -> Result<()> {
+fn process(proxy_addr: String, socks5_addr: String) -> Result<()> {
     let socks5_addr = SocketAddr::from_str(&socks5_addr).res_auto_convert()?;
 
-    let mut rt = runtime::Builder::new()
-        .threaded_scheduler()
+    let rt = runtime::Builder::new_current_thread()
         .enable_all()
-        .core_threads(threads)
         .build()?;
 
     let mut connector = HttpConnector::new();
@@ -90,7 +88,7 @@ fn process(proxy_addr: String, socks5_addr: String, threads: usize) -> Result<()
         info!("Listening on http://{}", proxy_addr);
 
         if let Err(e) = server.await {
-            error!("Server error: {}", e);
+            error!("{}", e);
         }
     });
     Ok(())
@@ -104,13 +102,13 @@ async fn proxy(client: HttpClient, req: Request<Body>, socks5_addr: SocketAddr) 
         let addr = (host, port);
 
         tokio::spawn(async move {
-            match req.into_body().on_upgrade().await {
+            match hyper::upgrade::on(req).await {
                 Ok(upgraded) => {
                     if let Err(e) = tunnel(upgraded, addr, socks5_addr).await {
-                        error!("Server io error: {}", e);
+                        error!("{}", e);
                     };
                 }
-                Err(e) => error!("Upgrade error: {}", e),
+                Err(e) => error!("{}", e),
             }
         });
 
@@ -125,17 +123,20 @@ async fn tunnel(upgraded: Upgraded, addr: (String, u16), socks5_addr: SocketAddr
     connect(&mut stream, addr, None).await.res_convert(|_| "Connect socks5 server error".to_string())?;
 
     let amounts = {
-        let (mut server_rd, mut server_wr) = tokio::io::split(stream);
-        let (mut client_rd, mut client_wr) = tokio::io::split(upgraded);
+        let (server_rd, mut server_wr) = tokio::io::split(stream);
+        let mut server_rd = BufReader::new(server_rd);
 
-        let client_to_server = tokio::io::copy(&mut client_rd, &mut server_wr);
-        let server_to_client = tokio::io::copy(&mut server_rd, &mut client_wr);
+        let (client_rd, mut client_wr) = tokio::io::split(upgraded);
+        let mut client_rd = BufReader::new(client_rd);
+
+        let client_to_server = tokio::io::copy_buf(&mut client_rd, &mut server_wr);
+        let server_to_client = tokio::io::copy_buf(&mut server_rd, &mut client_wr);
 
         tokio::try_join!(client_to_server, server_to_client)
     };
 
     if let Err(e) = amounts {
-        error!("Tunnel error: {}", e);
+        error!("{}", e);
     }
     Ok(())
 }
