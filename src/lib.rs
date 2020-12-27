@@ -123,7 +123,7 @@ async fn tunnel(upgraded: Upgraded, addr: (String, u16), socks5_addr: SocketAddr
     connect(&mut stream, addr, None).await.res_convert(|_| "Connect socks5 server error".to_string())?;
 
     let amounts = {
-        let (server_rd, mut server_wr) = tokio::io::split(stream);
+        let (server_rd, mut server_wr) = stream.split();
         let mut server_rd = BufReader::new(server_rd);
 
         let (client_rd, mut client_wr) = tokio::io::split(upgraded);
