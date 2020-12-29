@@ -132,7 +132,10 @@ async fn tunnel(upgraded: Upgraded, addr: (String, u16), socks5_addr: SocketAddr
         let client_to_server = tokio::io::copy_buf(&mut client_rd, &mut server_wr);
         let server_to_client = tokio::io::copy_buf(&mut server_rd, &mut client_wr);
 
-        tokio::try_join!(client_to_server, server_to_client)
+        tokio::select! {
+            res = client_to_server => res,
+            res = server_to_client => res
+        }
     };
 
     if let Err(e) = amounts {
