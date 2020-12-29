@@ -21,7 +21,7 @@ in cpp
 #include "httptosocks.h"
 
 int main() {
-    // http or https listen address
+    // http/https listen address
     std::string http_addr = "127.0.0.1:10800";
     unsigned char http_addr_len = http_addr.length();
 
