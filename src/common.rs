@@ -47,8 +47,8 @@ fn std_res_convert<T, E>(res: std::result::Result<T, E>, f: fn(E) -> String) -> 
     }
 }
 
-pub fn str_convert(str: *const c_char, len: usize) -> Result<String> {
+pub fn str_convert(str: *const c_char) -> Result<String> {
     let str = unsafe { CStr::from_ptr(str) };
     let str = str.to_str().res_auto_convert()?;
-    Ok(String::from(&str[..len]))
+    Ok(String::from(str))
 }

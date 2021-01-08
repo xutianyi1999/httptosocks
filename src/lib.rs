@@ -31,7 +31,7 @@ type HttpClient = Client<SocksConnector<HttpConnector>>;
 static mut IS_INIT: bool = false;
 
 #[no_mangle]
-pub extern fn start(proxy_addr: *const c_char, proxy_addr_len: u8, socks5_addr: *const c_char, socks5_addr_len: u8) {
+pub extern fn start(proxy_addr: *const c_char, socks5_addr: *const c_char) {
     unsafe {
         if !IS_INIT {
             if let Err(e) = logger_init() {
@@ -43,8 +43,8 @@ pub extern fn start(proxy_addr: *const c_char, proxy_addr_len: u8, socks5_addr: 
     }
 
     let f = || {
-        let proxy_addr = str_convert(proxy_addr, proxy_addr_len as usize)?;
-        let socks5_addr = str_convert(socks5_addr, socks5_addr_len as usize)?;
+        let proxy_addr = str_convert(proxy_addr)?;
+        let socks5_addr = str_convert(socks5_addr)?;
         process(proxy_addr, socks5_addr)
     };
 
