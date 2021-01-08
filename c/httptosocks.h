@@ -7,10 +7,7 @@
 
 extern "C" {
 
-void start(const char *proxy_addr,
-           unsigned char proxy_addr_len,
-           const char *socks5_addr,
-           unsigned char socks5_addr_len);
+void start(const char *proxy_addr, const char *socks5_addr);
 };
 
 
