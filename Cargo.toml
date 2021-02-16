@@ -10,8 +10,8 @@ crate-type = ["cdylib"]
 
 [dependencies]
 hyper = { version = "0.14", features = ["full"] }
-tokio = { version = "1.0", features = ["full"] }
+tokio = { version = "1", features = ["full"] }
 hyper-socks2 = "0.6"
 async-socks5 = "0.5"
 log = "0.4"
-log4rs = "1.0"
+log4rs = "1"
